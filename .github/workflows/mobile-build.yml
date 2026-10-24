@@ -36,7 +36,26 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      # 不再使用 android-actions/setup-android@v3：
+      # 该 action 在 2026 年的 runner 上会执行 `sdkmanager tools`，而 SDK 仓库已移除 "tools" 包，导致 job 必挂。
+      # GitHub 托管 runner 本身预装 Android SDK（ANDROID_HOME 已设置），这里直接补齐本项目需要的组件。
+      - name: 准备 Android SDK 组件
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>} ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
+          ls "${ANDROID_HOME}/platforms" 2>/dev/null || true
+          ls "${ANDROID_HOME}/build-tools" 2>/dev/null || true
+          SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" -path '*/bin/sdkmanager' -type f 2>/dev/null | sort | tail -1)"
+          echo "sdkmanager: ${SDKMANAGER}"
+          if [ -z "${SDKMANAGER}" ]; then
+            echo "找不到 sdkmanager，改用 runner 预装 SDK" >&2
+          else
+            printf 'y\n%.0s' $(seq 1 40) | "${SDKMANAGER}" --licenses > /dev/null 2>&1 || true
+            "${SDKMANAGER}" --install 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0' 'platform-tools' 2>&1 | tail -20
+          fi
+          test -d "${ANDROID_HOME}/platforms/android-36"
+          test -d "${ANDROID_HOME}/build-tools/35.0.0"
+          test -d "${ANDROID_HOME}/build-tools/36.0.0"
 
       - name: 安装依赖
         run: npm ci
@@ -96,7 +115,8 @@ jobs:
           test -f App.xcodeproj/project.pbxproj
           test -f App.xcodeproj/xcshareddata/xcschemes/App.xcscheme
           test -f CapApp-SPM/Package.swift
-          test -f App/App/public/index.html
+          test -f App/public/index.html
+          ls -la App/public | head -10
           xcodebuild -list -project App.xcodeproj
           mkdir -p build
           # 方案可解析 = scheme 指向的 target/configuration 正确（缺共享 scheme 会在这里失败）
