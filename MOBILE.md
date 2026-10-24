@@ -65,10 +65,13 @@ cd android
 ```
 
 - 报 `Failed to find Build Tools revision 35.0.0`：AGP 8.13 默认需要 Build-Tools 35.0.0，用
-  `sdkmanager "build-tools;35.0.0" "platforms;android-36"` 装上即可（GitHub Actions 的 setup-android 会自动装）。
-- 版本号在 `android/app/build.gradle`：`versionCode 219` / `versionName "2.19.0"`，发版时与 `package.json` 的
-  `version` 一起改。
-- 本项目已在 Windows + JDK 21.0.12 + Gradle 8.14.3 + Android SDK 36 实机构建通过（2026-10）。
+  `sdkmanager "build-tools;35.0.0" "platforms;android-36"` 装上即可（GitHub Actions 工作流会自动补装；
+  注意 `android-actions/setup-android@v3` 在 2026 年的 runner 上会因 `sdkmanager tools` 被移除而失败，工作流已不用它）。
+- 版本号：Android 在 `android/app/build.gradle`（`versionCode 219` / `versionName "2.19.0"`），
+  iOS 在 `ios/App/App.xcodeproj/project.pbxproj`（`CURRENT_PROJECT_VERSION = 219` / `MARKETING_VERSION = 2.19.0`），
+  发版时与 `package.json` 的 `version` 一起改。
+- 本项目已在 Windows + JDK 21.0.12 + Gradle 8.14.3 + Android SDK 36 实机构建通过（2026-10）；
+  GitHub Actions（ubuntu-latest + macos-15）出 APK / 未签名 ipa 也已跑通（2026-10）。
 
 ### 本地打 iOS 包（需要 macOS + Xcode）
 
