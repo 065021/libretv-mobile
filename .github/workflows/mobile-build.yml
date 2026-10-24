@@ -154,8 +154,9 @@ jobs:
           grep -E '"(CFBundleIdentifier|CFBundleDisplayName|NSLocalNetworkUsageDescription|NSAllowsArbitraryLoads|NSAllowsArbitraryLoadsInWebContent)"' build/app-info.txt
           test "$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")" = "com.libretv.app"
           test "$(plutil -extract CFBundleDisplayName raw "$APP/Info.plist")" = "LibreTV"
-          grep -q '"NSAllowsArbitraryLoads" => true' build/app-info.txt
-          grep -q '"NSLocalNetworkUsageDescription" =>' build/app-info.txt
+          # 注意：新版 plutil -p 把布尔值打印成 1/0（旧版是 true/false），两种都接受
+          grep -Eq '"NSAllowsArbitraryLoads" => (1|true)' build/app-info.txt
+          grep -Eq '"NSLocalNetworkUsageDescription" =>' build/app-info.txt
 
       - name: 打包成 ipa
         working-directory: ios/App
@@ -169,7 +170,7 @@ jobs:
           unzip -l LibreTV-unsigned.ipa > build/ipa-list.txt
           head -30 build/ipa-list.txt
           grep -q 'Payload/App.app/Info.plist' build/ipa-list.txt
-          grep -Eq 'Payload/App.app/App$' build/ipa-list.txt
+          grep -Eq 'Payload/App\.app/App[[:space:]]*$' build/ipa-list.txt
           ls -lh LibreTV-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
