@@ -1,0 +1,34 @@
+node_modules/
+.next/
+out/
+.env
+.env*.local
+*.tsbuildinfo
+vitest-results.json
+*.log
+
+# AI 工具产物（本机会话/缓存数据，不入库）
+.mimosa/
+.zcode/
+.codebuddy/
+generated-images/
+
+# —— 移动端（Capacitor）——
+.next-mobile/
+# cap sync 生成的 Web 资源副本，构建时重新生成，不入库
+android/app/src/main/assets/public/
+ios/App/App/public/
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+ios/App/build/
+ios/App/DerivedData/
+ios/App/Pods/
+# 签名文件一律不入库
+*.keystore
+*.jks
+# 各人自己的预置源配置（见 MOBILE.md）
+mobile-sources.json
+mobile-live-sources.json
+mobile-subscriptions.json

@@ -1,0 +1,160 @@
+name: Build Mobile App
+
+# 手动触发，或打 v* 标签时自动出包。
+# 产出：安卓 debug APK（可直接安装）、iOS 未签名 ipa（需自行签名后安装）。
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 要构建的分支 / 标签
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 静态导出（App 内运行的前端 + 本地接口）
+        run: node scripts/mobile/build.mjs --no-sync
+
+      - name: 同步到原生工程
+        run: npx cap sync android
+
+      - name: 编译 APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libretv-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+  ios:
+    name: iOS IPA (unsigned)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 环境信息（便于排查 runner 漂移）
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcode-select -p
+          node -v
+          npx cap --version
+
+      - name: 静态导出
+        run: node scripts/mobile/build.mjs --no-sync
+
+      - name: 同步到原生工程
+        run: npx cap sync ios
+
+      - name: 检查 Xcode 工程、共享 scheme 与 web 资源
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          test -f App.xcodeproj/project.pbxproj
+          test -f App.xcodeproj/xcshareddata/xcschemes/App.xcscheme
+          test -f CapApp-SPM/Package.swift
+          test -f App/App/public/index.html
+          xcodebuild -list -project App.xcodeproj
+          mkdir -p build
+          # 方案可解析 = scheme 指向的 target/configuration 正确（缺共享 scheme 会在这里失败）
+          xcodebuild -project App.xcodeproj -scheme App -configuration Release -showBuildSettings > build/build-settings.txt
+          grep -E ' (PRODUCT_BUNDLE_IDENTIFIER|PRODUCT_NAME|IPHONEOS_DEPLOYMENT_TARGET|TARGETED_DEVICE_FAMILY|CODE_SIGNING_REQUIRED|CODE_SIGN_IDENTITY) = ' build/build-settings.txt
+          grep -q 'PRODUCT_BUNDLE_IDENTIFIER = com.libretv.app' build/build-settings.txt
+          grep -q 'IPHONEOS_DEPLOYMENT_TARGET = 15.0' build/build-settings.txt
+
+      - name: 解析 SPM 依赖（cap 8 无 CocoaPods）
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          xcodebuild -project App.xcodeproj -scheme App -derivedDataPath build -resolvePackageDependencies
+
+      - name: 编译未签名 .app
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+          APP=build/Build/Products/Release-iphoneos/App.app
+          test -d "$APP"
+          test -f "$APP/App"
+          # 校验 Info.plist 真的进了产物（ATS 决定 http 源能否播放）
+          plutil -p "$APP/Info.plist" > build/app-info.txt
+          grep -E '"(CFBundleIdentifier|CFBundleDisplayName|NSLocalNetworkUsageDescription|NSAllowsArbitraryLoads|NSAllowsArbitraryLoadsInWebContent)"' build/app-info.txt
+          test "$(plutil -extract CFBundleIdentifier raw "$APP/Info.plist")" = "com.libretv.app"
+          test "$(plutil -extract CFBundleDisplayName raw "$APP/Info.plist")" = "LibreTV"
+          grep -q '"NSAllowsArbitraryLoads" => true' build/app-info.txt
+          grep -q '"NSLocalNetworkUsageDescription" =>' build/app-info.txt
+
+      - name: 打包成 ipa
+        working-directory: ios/App
+        run: |
+          set -euo pipefail
+          rm -rf build/Payload LibreTV-unsigned.ipa
+          mkdir -p build/Payload
+          ditto build/Build/Products/Release-iphoneos/App.app build/Payload/App.app
+          ( cd build && zip -qry ../LibreTV-unsigned.ipa Payload )
+          # 注意：不要 unzip -l | head，pipefail 下 SIGPIPE 会让步骤失败
+          unzip -l LibreTV-unsigned.ipa > build/ipa-list.txt
+          head -30 build/ipa-list.txt
+          grep -q 'Payload/App.app/Info.plist' build/ipa-list.txt
+          grep -Eq 'Payload/App.app/App$' build/ipa-list.txt
+          ls -lh LibreTV-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libretv-ios-ipa
+          path: ios/App/LibreTV-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
